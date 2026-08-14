@@ -1,6 +1,7 @@
 /**
  * Main Game Logic - Petrol Pump Rush
  * Phase 3: Hold-to-fill, upgrade shop, fuel amounts, accuracy
+ * Phase 4: Worker walks to cars, polished feedback, background music
  */
 
 const canvas = document.getElementById('gameCanvas');
@@ -18,9 +19,13 @@ let gameState = {
     selectedPump: null,
     fillingCar: null,       // The car currently being filled via hold-to-fill
     isFilling: false,       // Whether the player is currently holding to fill
+    fuelMeterShown: false,  // Fuel meter overlay visibility
     cars: [],
     floatingTexts: [],
-    particles: [],          // Phase 4: Explosion particles
+    particles: [],
+    shake: 0,               // Screen shake intensity (0..1)
+    flash: 0,               // Red flash intensity (0..1)
+    lastStrikeCar: null,    // Car that caused the final strike
     frameCount: 0,
     worker: null,
     wave: 1,
@@ -30,22 +35,42 @@ let gameState = {
 
 // ===== PUMP SETUP =====
 const pumps = [
-    new Pump('petrol', 464, 420),
-    new Pump('diesel', 633, 490),
-    new Pump('cng', 801, 560)
+    new Pump('petrol', CONFIG.layout.firstPumpX, CONFIG.layout.pumpY),
+    new Pump('diesel', CONFIG.layout.firstPumpX + CONFIG.layout.pumpSpacing, CONFIG.layout.pumpY),
+    new Pump('cng', CONFIG.layout.firstPumpX + CONFIG.layout.pumpSpacing * 2, CONFIG.layout.pumpY)
 ];
+
+// ===== HELPERS =====
+function spawnBurst(x, y, count, colorOverride) {
+    for (let i = 0; i < count; i++) {
+        const p = new Particle(x, y);
+        if (colorOverride && Math.random() < 0.7) p.color = colorOverride;
+        gameState.particles.push(p);
+    }
+}
+
+function getPumpForCar(car) {
+    for (let pump of pumps) {
+        if (pump.x === car.targetX - 55) return pump;
+    }
+    return null;
+}
 
 // ===== INITIALIZATION =====
 async function initApp() {
     showLoadingScreen();
-    const assetsLoaded = await assetManager.loadAssets();
+    const assetsLoaded = await assetManager.loadAssets((done, total) => {
+        const el = document.getElementById('loadingProgress');
+        if (el) el.textContent = Math.round((done / total) * 100) + '%';
+    });
     hideLoadingScreen();
 
     if (!assetsLoaded) console.warn('Some assets failed to load');
-    
+
     // Check if tutorial is needed
     if (!localStorage.getItem('pumpGameTutorialShown')) {
         document.getElementById('tutorialScreen').style.display = 'flex';
+        document.getElementById('startScreen').style.display = 'none';
     } else {
         document.getElementById('startScreen').style.display = 'flex';
     }
@@ -54,9 +79,9 @@ async function initApp() {
 
 function startGame() {
     currentGameState = 'PLAYING';
-    
+
     const maxWrong = shop.getMaxWrongFuel();
-    
+
     gameState = {
         score: 0,
         highScore: parseInt(localStorage.getItem('pumpGameHighScore')) || 0,
@@ -66,11 +91,15 @@ function startGame() {
         selectedPump: null,
         fillingCar: null,
         isFilling: false,
+        fuelMeterShown: false,
         cars: [],
         floatingTexts: [],
         particles: [],
+        shake: 0,
+        flash: 0,
+        lastStrikeCar: null,
         frameCount: 0,
-        worker: new Worker(800, 300),
+        worker: new Worker(CONFIG.layout.workerHomeX, CONFIG.layout.workerHomeY),
         wave: 1,
         carsServiced: 0,
         bestCombo: 1
@@ -81,7 +110,14 @@ function startGame() {
     document.getElementById('pauseScreen').style.display = 'none';
     document.getElementById('shopScreen').style.display = 'none';
     document.getElementById('fuelMeterOverlay').style.display = 'none';
-    
+
+    // Kick things off with a couple of cars so the game isn't empty
+    spawnCar();
+    spawnCar();
+
+    gameState.floatingTexts.push(new FloatingText('WAVE 1 - GO!', canvas.width / 2, canvas.height / 2, '#FFD700', true));
+
+    sfx.startMusic();
     updateUI();
     requestAnimationFrame(gameLoop);
 }
@@ -132,6 +168,8 @@ canvas.addEventListener('click', (e) => {
         if (car.state === 'waiting' && car.contains(x, y)) {
             sfx.select();
             gameState.currentCar = car;
+            pumps.forEach(p => p.selected = false);
+            gameState.selectedPump = null;
             return;
         }
     }
@@ -146,8 +184,8 @@ canvas.addEventListener('click', (e) => {
             if (gameState.currentCar && gameState.currentCar.state === 'waiting') {
                 sfx.select();
                 const car = gameState.currentCar;
-                car.targetX = pump.x + 40;
-                car.targetY = pump.y - 20;
+                car.targetX = pump.x + 55;
+                car.targetY = pump.y - 12;
                 car.state = 'arriving_pump';
                 car.isWrongFuel = (car.fuelType !== pump.type);
                 gameState.currentCar = null;
@@ -155,6 +193,11 @@ canvas.addEventListener('click', (e) => {
             return;
         }
     }
+
+    // Clicking empty space clears selection
+    gameState.currentCar = null;
+    pumps.forEach(p => p.selected = false);
+    gameState.selectedPump = null;
 });
 
 // ===== HOLD-TO-FILL SYSTEM =====
@@ -171,6 +214,7 @@ function startFilling() {
     gameState.isFilling = true;
     car.state = 'filling';
     car.currentFillAmount = 0;
+    car.lastTick = 0;
 
     // Show fuel meter overlay
     showFuelMeter(car);
@@ -184,45 +228,51 @@ function stopFilling() {
 
     // Evaluate accuracy
     const result = car.completeFill();
-    
+
     // Stats tracking
     if (result === 'PERFECT' || result === 'GOOD') {
-        gameState.carsServiced++;
         if (gameState.combo > gameState.bestCombo) gameState.bestCombo = gameState.combo;
-        
+
         // Wave progression: every 10 cars
         if (gameState.carsServiced % 10 === 0) {
             gameState.wave++;
-            gameState.floatingTexts.push(new FloatingText(`WAVE ${gameState.wave}!`, canvas.width/2, canvas.height/2, '#00FF00'));
+            gameState.floatingTexts.push(new FloatingText(`WAVE ${gameState.wave}!`, canvas.width / 2, canvas.height / 2, '#00FF00', true));
         }
     }
-    
+
     // Show result on meter
     showFuelMeterResult(result);
-    
+
     // Check game over
     const maxWrong = shop.getMaxWrongFuel();
     if (gameState.wrongFuelCount >= maxWrong) {
+        const offendingCar = (result === 'WRONG_FUEL') ? car : gameState.lastStrikeCar;
         setTimeout(() => {
             hideFuelMeter();
-            triggerGameOver();
-        }, 800);
+            triggerGameOver(offendingCar);
+        }, 750);
     } else {
         setTimeout(() => {
             hideFuelMeter();
             gameState.fillingCar = null;
             updateUI();
-        }, 1200);
+        }, 750);
     }
 }
 
-function updateFilling() {
+function updateFilling(dt) {
     if (!gameState.isFilling || !gameState.fillingCar) return;
 
     const car = gameState.fillingCar;
     const fillSpeed = shop.getFillSpeed();
-    car.currentFillAmount += fillSpeed;
-    
+    car.currentFillAmount += fillSpeed * dt;
+
+    // Fill tick sound at regular intervals
+    if (car.currentFillAmount >= car.lastTick + CONFIG.fillTickInterval) {
+        sfx.fillTick();
+        car.lastTick = car.currentFillAmount;
+    }
+
     // Cap at 130% of requested (for overfill)
     const maxFill = car.requestedAmount * 1.3;
     if (car.currentFillAmount >= maxFill) {
@@ -239,18 +289,20 @@ function updateFilling() {
 function showFuelMeter(car) {
     const overlay = document.getElementById('fuelMeterOverlay');
     const fuelColors = { petrol: '#00BFFF', diesel: '#32CD32', cng: '#FFA500' };
-    
-    document.getElementById('fuelMeterTitle').textContent = `FILLING: ${car.fuelType.toUpperCase()} — ${car.requestedAmount}`;
+
+    gameState.fuelMeterShown = true;
+
+    document.getElementById('fuelMeterTitle').textContent = `FILLING: ${car.fuelType.toUpperCase()}  ${car.requestedAmount}`;
     document.getElementById('fuelMeterTitle').style.color = fuelColors[car.fuelType] || '#FFD700';
     document.getElementById('fuelMeterTarget').textContent = car.requestedAmount;
     document.getElementById('fuelMeterCurrent').textContent = '0';
     document.getElementById('fuelMeterResult').style.display = 'none';
-    
+
     // Position target line
     const maxFill = car.requestedAmount * 1.3;
     const targetPercent = (car.requestedAmount / maxFill) * 100;
     document.getElementById('fuelMeterTargetLine').style.left = targetPercent + '%';
-    
+
     // Position perfect zone
     const perfectTol = CONFIG.accuracy.PERFECT.tolerance;
     const perfectLeft = ((car.requestedAmount - perfectTol) / maxFill) * 100;
@@ -258,7 +310,7 @@ function showFuelMeter(car) {
     const perfectZone = document.getElementById('fuelMeterPerfectZone');
     perfectZone.style.left = perfectLeft + '%';
     perfectZone.style.width = (perfectRight - perfectLeft) + '%';
-    
+
     // Position good zone
     const goodTol = CONFIG.accuracy.GOOD.tolerance;
     const goodLeft = ((car.requestedAmount - goodTol) / maxFill) * 100;
@@ -266,20 +318,20 @@ function showFuelMeter(car) {
     const goodZone = document.getElementById('fuelMeterGoodZone');
     goodZone.style.left = goodLeft + '%';
     goodZone.style.width = (goodRight - goodLeft) + '%';
-    
+
     // Reset fill bar
     document.getElementById('fuelMeterFill').style.width = '0%';
-    
+
     overlay.style.display = 'flex';
 }
 
 function updateFuelMeterUI(car) {
     const maxFill = car.requestedAmount * 1.3;
     const fillPercent = (car.currentFillAmount / maxFill) * 100;
-    
+
     document.getElementById('fuelMeterFill').style.width = fillPercent + '%';
     document.getElementById('fuelMeterCurrent').textContent = Math.floor(car.currentFillAmount);
-    
+
     // Color the fill bar based on proximity to target
     const diff = Math.abs(car.currentFillAmount - car.requestedAmount);
     const fill = document.getElementById('fuelMeterFill');
@@ -304,6 +356,7 @@ function showFuelMeterResult(result) {
 
 function hideFuelMeter() {
     document.getElementById('fuelMeterOverlay').style.display = 'none';
+    gameState.fuelMeterShown = false;
 }
 
 // ===== POINTER EVENTS FOR HOLD-TO-FILL =====
@@ -330,7 +383,7 @@ fuelMeterOverlay.addEventListener('pointerleave', (e) => {
 // Also listen on canvas for when a car is ready_to_fill (pressing starts the meter)
 canvas.addEventListener('pointerdown', (e) => {
     if (currentGameState !== 'PLAYING') return;
-    
+
     // Check if any car is ready_to_fill
     const readyCar = gameState.cars.find(c => c.state === 'ready_to_fill');
     if (readyCar) {
@@ -350,7 +403,7 @@ canvas.addEventListener('pointerup', (e) => {
 function renderShop() {
     const container = document.getElementById('shopItems');
     container.innerHTML = '';
-    
+
     document.getElementById('shopBalance').textContent = `Balance: ${gameState.score} pts`;
 
     for (const [id, def] of Object.entries(CONFIG.upgrades)) {
@@ -361,23 +414,23 @@ function renderShop() {
 
         const item = document.createElement('div');
         item.className = 'shop-item';
-        
+
         item.innerHTML = `
             <div class="shop-item-info">
                 <div class="shop-item-name">${def.name}</div>
                 <div class="shop-item-desc">${def.description}</div>
                 <div class="shop-item-level">Lv ${level} / ${def.maxLevel}</div>
             </div>
-            <button class="shop-buy-btn ${isMaxed ? 'maxed' : ''}" 
-                    data-upgrade="${id}" 
+            <button class="shop-buy-btn ${isMaxed ? 'maxed' : ''}"
+                    data-upgrade="${id}"
                     ${!canBuy ? 'disabled' : ''}>
                 ${isMaxed ? 'MAX' : cost + ' pts'}
             </button>
         `;
-        
+
         container.appendChild(item);
     }
-    
+
     // Attach buy events
     container.querySelectorAll('.shop-buy-btn:not(.maxed):not([disabled])').forEach(btn => {
         btn.addEventListener('click', () => {
@@ -394,50 +447,81 @@ function renderShop() {
 function openShop(returnTo) {
     gameState._shopReturnTo = returnTo;
     document.getElementById('shopScreen').style.display = 'flex';
-    
+
     // Hide other screens
     if (returnTo === 'START') document.getElementById('startScreen').style.display = 'none';
     if (returnTo === 'PAUSED') document.getElementById('pauseScreen').style.display = 'none';
     if (returnTo === 'GAMEOVER') document.getElementById('gameOver').style.display = 'none';
-    
+
     renderShop();
 }
 
 function closeShop() {
     document.getElementById('shopScreen').style.display = 'none';
     const returnTo = gameState._shopReturnTo || 'START';
-    
+
     if (returnTo === 'START') document.getElementById('startScreen').style.display = 'flex';
     if (returnTo === 'PAUSED') document.getElementById('pauseScreen').style.display = 'flex';
     if (returnTo === 'GAMEOVER') document.getElementById('gameOver').style.display = 'flex';
 }
 
 // ===== GAME OVER =====
-function triggerGameOver() {
+function triggerGameOver(offendingCar) {
     currentGameState = 'GAMEOVER';
     sfx.explosion();
     setTimeout(() => sfx.gameOver(), 500);
-    
+    sfx.stopMusic();
+
     gameState.isFilling = false;
     gameState.fillingCar = null;
-    
-    gameState.cars.forEach(car => {
-        if (car.state === 'filling' && car.isWrongFuel) {
-            car.state = 'explosion';
-            // Spawn particles
-            for(let i=0; i<30; i++) {
-                gameState.particles.push(new Particle(car.x, car.y));
-            }
-        }
-    });
-    
-    document.getElementById('finalScore').textContent = `Final Score: ${gameState.score}`;
-    document.getElementById('statsWave').textContent = `Wave Reached: ${gameState.wave}`;
-    document.getElementById('statsCars').textContent = `Cars Serviced: ${gameState.carsServiced}`;
-    document.getElementById('statsCombo').textContent = `Best Combo: x${gameState.bestCombo}`;
-    
-    document.getElementById('gameOverMessage').textContent = 'WRONG FUEL EXPLOSION! 💥';
-    document.getElementById('gameOver').style.display = 'flex';
+
+    if (offendingCar) {
+        offendingCar.state = 'explosion';
+        spawnBurst(offendingCar.x, offendingCar.y, 45);
+        gameState.shake = 1;
+        gameState.flash = 1;
+    } else {
+        gameState.shake = 0.5;
+        gameState.flash = 0.6;
+    }
+
+    // Run a short post-mortem animation so the explosion plays out
+    gameState._postTimer = 0;
+    requestAnimationFrame(postGameOverLoop);
+}
+
+function postGameOverLoop() {
+    // Cancel if the game has been restarted
+    if (currentGameState === 'PLAYING' || gameState._postTimer === undefined) return;
+
+    gameState._postTimer++;
+
+    // Keep particles and texts animating
+    gameState.particles = gameState.particles.filter(p => p.update() !== false);
+    gameState.floatingTexts = gameState.floatingTexts.filter(t => t.update() !== false);
+    gameState.shake *= 0.92;
+    gameState.flash -= 0.025;
+
+    draw();
+
+    if (gameState._postTimer < 110) {
+        requestAnimationFrame(postGameOverLoop);
+    } else {
+        document.getElementById('finalScore').textContent = `Final Score: ${gameState.score}`;
+        document.getElementById('statsWave').textContent = `Wave Reached: ${gameState.wave}`;
+        document.getElementById('statsCars').textContent = `Cars Serviced: ${gameState.carsServiced}`;
+        document.getElementById('statsCombo').textContent = `Best Combo: x${gameState.bestCombo}`;
+        document.getElementById('gameOverMessage').textContent = offendingCarMessage();
+        document.getElementById('gameOver').style.display = 'flex';
+    }
+}
+
+function offendingCarMessage() {
+    const maxWrong = shop.getMaxWrongFuel();
+    if (gameState.wrongFuelCount >= maxWrong && gameState.lastStrikeCar) {
+        return 'WRONG FUEL EXPLOSION!';
+    }
+    return 'TOO MANY MISTAKES! GAME OVER';
 }
 
 // ===== UI UPDATE =====
@@ -456,14 +540,46 @@ function updateUI() {
         dot.className = 'fuel-dot';
         if (i < gameState.wrongFuelCount) {
             dot.className += ' x';
-            dot.textContent = '✕';
+            dot.textContent = 'X';
         }
         wrongFuelDots.appendChild(dot);
     }
 }
 
+// ===== WORKER TARGETING =====
+function updateWorkerTarget() {
+    if (!gameState.worker) return;
+
+    if (gameState.fillingCar) {
+        // Stand next to the car being filled
+        gameState.worker.setTarget(gameState.fillingCar.x - 34, gameState.fillingCar.y + 6);
+        return;
+    }
+
+    // Walk to a car being served or selected
+    const served = gameState.cars.find(c => c.state === 'arriving_pump' || c.state === 'ready_to_fill');
+    if (served) {
+        gameState.worker.setTarget(served.x - 34, served.y + 6);
+        return;
+    }
+
+    if (gameState.currentCar) {
+        gameState.worker.setTarget(gameState.currentCar.x - 34, gameState.currentCar.y + 6);
+        return;
+    }
+
+    gameState.worker.goHome();
+}
+
 // ===== DRAWING =====
 function draw() {
+    ctx.save();
+
+    // Screen shake
+    if (gameState.shake > 0.01) {
+        ctx.translate((Math.random() - 0.5) * gameState.shake * 14, (Math.random() - 0.5) * gameState.shake * 14);
+    }
+
     assetManager.drawBackground(ctx, canvas.width, canvas.height);
 
     if (!assetManager.getImage('background')) {
@@ -475,26 +591,28 @@ function draw() {
 
     pumps.forEach(pump => pump.draw(ctx));
 
+    gameState.cars.forEach(car => {
+        car.draw(ctx, gameState.currentCar === car);
+    });
+
     if (gameState.worker) {
         gameState.worker.update();
         gameState.worker.draw(ctx);
     }
 
-    gameState.cars.forEach(car => {
-        if (car.state !== 'explosion') {
-            car.draw(ctx);
-        }
-    });
-    
     gameState.particles.forEach(p => p.draw(ctx));
 
     gameState.floatingTexts.forEach(text => text.draw(ctx));
 
     if (gameState.currentCar) {
-        ctx.fillStyle = '#FF0000';
+        const pulse = Math.sin(Date.now() / 200) * 0.4 + 0.6;
+        ctx.save();
+        ctx.globalAlpha = pulse;
+        ctx.fillStyle = '#FFD700';
         ctx.font = 'bold 14px "Press Start 2P", Arial';
         ctx.textAlign = 'center';
-        ctx.fillText('↓ ATTENDING ↓', gameState.currentCar.x, gameState.currentCar.y - 70);
+        ctx.fillText('CLICK PUMP', gameState.currentCar.x, gameState.currentCar.y - 75);
+        ctx.restore();
     }
 
     // Show "HOLD TO FILL" prompt when car is ready
@@ -506,17 +624,43 @@ function draw() {
         ctx.fillStyle = '#00FF00';
         ctx.font = 'bold 12px "Press Start 2P", Arial';
         ctx.textAlign = 'center';
-        ctx.fillText('HOLD TO FILL!', readyCar.x, readyCar.y - 70);
+        ctx.fillText('HOLD TO FILL!', readyCar.x, readyCar.y - 72);
         ctx.restore();
+    }
+
+    // Draw explosion wreck tint
+    gameState.cars.forEach(car => {
+        if (car.state === 'explosion') {
+            ctx.save();
+            ctx.globalAlpha = 0.35;
+            ctx.fillStyle = '#FF4400';
+            ctx.fillRect(car.x - car.width / 2, car.y - car.height / 2, car.width, car.height);
+            ctx.restore();
+        }
+    });
+
+    ctx.restore();
+
+    // Red flash overlay for big mistakes
+    if (gameState.flash > 0) {
+        ctx.fillStyle = `rgba(255, 0, 0, ${Math.max(0, Math.min(0.35, gameState.flash * 0.35))})`;
+        ctx.fillRect(0, 0, canvas.width, canvas.height);
     }
 }
 
 // ===== GAME LOOP =====
-function gameLoop() {
+let lastFrameTime = null;
+
+function gameLoop(timestamp) {
     if (currentGameState !== 'PLAYING') return;
 
+    // Delta time normalized to 60fps (1.0 = one frame at 60fps), capped to avoid huge jumps
+    const dt = lastFrameTime === null ? 1 : Math.min((timestamp - lastFrameTime) / 16.6667, 3);
+    lastFrameTime = timestamp;
+
     gameState.frameCount++;
-    
+    gameState.spawnAccumulator = (gameState.spawnAccumulator || 0) + dt;
+
     // Difficulty scaling (affected by upgrade)
     const diffMult = shop.getDifficultyMultiplier();
     const effectiveTierSize = CONFIG.scoreTierSize * diffMult;
@@ -524,24 +668,38 @@ function gameLoop() {
         CONFIG.minSpawnRate,
         CONFIG.baseSpawnRate - Math.floor(gameState.score / effectiveTierSize) * CONFIG.spawnRateReduction
     );
-    
-    if (gameState.frameCount % currentSpawnRate === 0) {
+
+    if (gameState.spawnAccumulator >= currentSpawnRate) {
+        gameState.spawnAccumulator = 0;
         spawnCar();
     }
 
     // Update filling
     if (gameState.isFilling) {
-        updateFilling();
+        updateFilling(dt);
     }
 
     // Update cars
-    gameState.cars = gameState.cars.filter(car => car.update() !== false);
-    
+    gameState.cars = gameState.cars.filter(car => car.update(dt) !== false);
+
+    // Update pump in-use state
+    if (gameState.fillingCar) {
+        pumps.forEach(p => p.inUse = (p === getPumpForCar(gameState.fillingCar)));
+    } else {
+        pumps.forEach(p => p.inUse = false);
+    }
+
     // Update particles
     gameState.particles = gameState.particles.filter(p => p.update() !== false);
-    
+
     // Update floating texts
     gameState.floatingTexts = gameState.floatingTexts.filter(text => text.update() !== false);
+
+    // Decay shake/flash
+    if (gameState.shake > 0) gameState.shake *= 0.92;
+    if (gameState.flash > 0) gameState.flash -= 0.02;
+
+    updateWorkerTarget();
 
     draw();
     updateUI();
@@ -560,20 +718,33 @@ document.getElementById('resumeBtn').addEventListener('click', () => {
     sfx.select();
     currentGameState = 'PLAYING';
     document.getElementById('pauseScreen').style.display = 'none';
+    sfx.startMusic();
     requestAnimationFrame(gameLoop);
 });
 
+function togglePause() {
+    if (currentGameState === 'PLAYING') {
+        currentGameState = 'PAUSED';
+        sfx.stopMusic();
+        document.getElementById('pauseScreen').style.display = 'flex';
+    } else if (currentGameState === 'PAUSED') {
+        currentGameState = 'PLAYING';
+        sfx.select();
+        document.getElementById('pauseScreen').style.display = 'none';
+        sfx.startMusic();
+        requestAnimationFrame(gameLoop);
+    }
+}
+
 window.addEventListener('keydown', (e) => {
     if (e.key === 'Escape' || e.key === 'p') {
-        if (currentGameState === 'PLAYING') {
-            currentGameState = 'PAUSED';
-            document.getElementById('pauseScreen').style.display = 'flex';
-        } else if (currentGameState === 'PAUSED') {
-            currentGameState = 'PLAYING';
-            document.getElementById('pauseScreen').style.display = 'none';
-            requestAnimationFrame(gameLoop);
-        }
+        togglePause();
     }
+});
+
+document.getElementById('pauseBtn').addEventListener('click', () => {
+    sfx.init();
+    togglePause();
 });
 
 document.getElementById('restartBtn').addEventListener('click', () => {
@@ -624,9 +795,15 @@ document.getElementById('tutorialGotItBtn').addEventListener('click', () => {
 });
 
 document.getElementById('soundToggleBtn').addEventListener('click', (e) => {
+    sfx.init();
     sfx.enabled = !sfx.enabled;
-    e.target.textContent = sfx.enabled ? '🔊' : '🔇';
-    sfx.select();
+    e.target.textContent = sfx.enabled ? 'ON' : 'OFF';
+    if (sfx.enabled) {
+        if (currentGameState === 'PLAYING') sfx.startMusic();
+        sfx.select();
+    } else {
+        sfx.stopMusic();
+    }
 });
 
 // ===== START APP =====

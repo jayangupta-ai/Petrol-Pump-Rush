@@ -6,8 +6,8 @@
 const CONFIG = {
     // ===== ACCURACY BANDS =====
     accuracy: {
-        PERFECT:    { tolerance: 5,   label: 'PERFECT!',    color: '#FFD700', pointsMult: 2.0 },
-        GOOD:       { tolerance: 20,  label: 'GOOD',        color: '#00FF00', pointsMult: 1.0 },
+        PERFECT:    { tolerance: 8,   label: 'PERFECT!',    color: '#FFD700', pointsMult: 2.0 },
+        GOOD:       { tolerance: 25,  label: 'GOOD',        color: '#00FF00', pointsMult: 1.0 },
         TOO_MUCH:   { label: 'TOO MUCH!',  color: '#FF6600', pointsMult: 0, penalty: 15 },
         TOO_LITTLE: { label: 'TOO LITTLE!', color: '#FF6600', pointsMult: 0, penalty: 15 },
         WRONG_FUEL: { label: 'WRONG FUEL!', color: '#FF0000', pointsMult: 0, penalty: 30 }
@@ -15,23 +15,34 @@ const CONFIG = {
 
     // ===== REWARDS & PENALTIES =====
     baseReward: 50,
+    perfectBonus: 30,
     wrongFuelPenalty: 30,
     missTargetPenalty: 15,
     maxWrongFuel: 4,
 
     // ===== FILL MECHANICS =====
-    baseFillSpeed: 2.5,       // units per frame while holding
+    baseFillSpeed: 2.0,       // units per frame while holding (tuned: ~3.75s for max amount)
+    fillTickInterval: 25,     // play a click sound every N units while filling
     fuelAmounts: {
-        min: 100,
-        max: 500,
+        min: 150,
+        max: 450,
         step: 50             // amounts will be multiples of this
     },
 
     // ===== DIFFICULTY =====
-    baseSpawnRate: 160,       // frames between spawns at start
-    minSpawnRate: 60,         // fastest possible spawn rate
-    spawnRateReduction: 10,   // reduction per score tier
+    baseSpawnRate: 130,       // frames between spawns at start
+    minSpawnRate: 55,         // fastest possible spawn rate
+    spawnRateReduction: 8,    // reduction per score tier
     scoreTierSize: 200,       // score needed per difficulty step
+
+    // ===== LAYOUT =====
+    layout: {
+        pumpY: 545,               // vertical position of the pump row
+        pumpSpacing: 190,         // horizontal gap between pumps
+        firstPumpX: 430,
+        workerHomeX: 140,
+        workerHomeY: 585
+    },
 
     // ===== UPGRADE DEFINITIONS =====
     upgrades: {
@@ -51,7 +62,7 @@ const CONFIG = {
             baseCost: 150,
             costMultiplier: 2.0,
             maxLevel: 4,
-            effect: (level) => 3 + level // max queue size
+            effect: (level) => 2 + Math.min(level, 4) // max queue size (2..6)
         },
         bonus_reward: {
             id: 'bonus_reward',

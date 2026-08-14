@@ -452,6 +452,7 @@ canvas {
     right: 15px;
     display: flex;
     gap: 10px;
+    pointer-events: auto;
 }
 
 .icon-btn {
@@ -468,6 +469,13 @@ canvas {
     align-items: center;
     transition: all 0.2s;
     box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+    pointer-events: auto;
+    font-family: 'Press Start 2P', monospace;
+}
+
+#soundToggleBtn {
+    font-size: 12px;
+    letter-spacing: 1px;
 }
 
 .icon-btn:hover {

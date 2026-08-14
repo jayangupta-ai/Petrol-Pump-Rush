@@ -10,20 +10,21 @@ class AssetManager {
         this.totalCount = 0;
     }
 
-    async loadAssets() {
+    async loadAssets(onProgress) {
         this.loading = true;
-        
+
         const assetPaths = {
-            background: 'assets/new background I want.png',
-            sprites: 'assets/sprite_transparent.png',  // New isometric sprite sheet
-            uiIcons: 'assets/UI_and_Icons.png'
+            background: 'assets/background.png',
+            sprites: 'assets/sprite_transparent.png'  // Isometric sprite sheet (cars, pumps, worker)
         };
 
         this.totalCount = Object.keys(assetPaths).length;
         const promises = [];
 
         for (const [key, path] of Object.entries(assetPaths)) {
-            promises.push(this.loadImage(key, path));
+            promises.push(this.loadImage(key, path).then(() => {
+                if (onProgress) onProgress(this.loadedCount, this.totalCount);
+            }));
         }
 
         await Promise.all(promises);

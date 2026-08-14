@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="description" content="Petrol Pump Rush - A fun pixel-art petrol station management game. Fill cars with the right fuel type and amount!">
+    <title>Petrol Pump Rush</title>
+    <link href="https://fonts.googleapis.com/css2?family=Press+Start+2P&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+    <div id="gameContainer">
+        <canvas id="gameCanvas" width="1200" height="700"></canvas>
+        <div id="gameUI">
+            <div class="hud">
+                <div class="hud-item">
+                    <span>SCORE:</span>
+                    <span id="scoreDisplay">00000</span>
+                </div>
+                <div class="hud-item">
+                    <span>HIGH:</span>
+                    <span id="highDisplay">00000</span>
+                </div>
+                <div class="hud-item" style="color: #FF00FF;">
+                    <span>COMBO:</span>
+                    <span id="comboDisplay">x1</span>
+                </div>
+                <div class="hud-item" style="color: #00FF00;">
+                    <span>WAVE:</span>
+                    <span id="waveDisplay">1</span>
+                </div>
+                <div class="fuel-indicator">
+                    <span style="font-size: 12px; color: #FFD700;">Wrong Fuel:</span>
+                    <div id="wrongFuelDots" style="display: flex; gap: 4px;"></div>
+                </div>
+            </div>
+            <div class="instructions">
+                1. Click a car  2. Select pump  3. Hold to fill  4. Release near target!
+            </div>
+            
+            <div class="settings-bar">
+                <button id="soundToggleBtn" class="icon-btn">🔊</button>
+            </div>
+        </div>
+
+        <!-- TUTORIAL OVERLAY -->
+        <div id="tutorialScreen" class="overlay-screen" style="display: none; border-color: #00FF00; box-shadow: 0 0 30px rgba(0, 255, 0, 0.8);">
+            <h1 style="color: #00FF00;">HOW TO PLAY</h1>
+            <div style="text-align: left; margin: 20px 0; font-family: Arial, sans-serif; font-size: 14px; line-height: 1.8; color: #FFF;">
+                <p>🚗 <b>1.</b> Cars arrive requesting a specific fuel type and amount.</p>
+                <p>⛽ <b>2.</b> Click a waiting car, then click the correct pump (P/D/C).</p>
+                <p>🎯 <b>3.</b> When the car pulses green, <b>HOLD</b> to start filling.</p>
+                <p>🏆 <b>4.</b> Release near the requested amount to score PERFECT!</p>
+                <p>💥 <b>5.</b> Avoid wrong fuel or overfilling. 4 strikes = Game Over.</p>
+            </div>
+            <button id="tutorialGotItBtn" class="game-btn">GOT IT!</button>
+        </div>
+
+        <!-- FUEL METER OVERLAY -->
+        <div id="fuelMeterOverlay" style="display: none;">
+            <div class="fuel-meter-panel">
+                <div class="fuel-meter-title" id="fuelMeterTitle">FILLING: PETROL</div>
+                <div class="fuel-meter-bar-container">
+                    <div class="fuel-meter-target-line" id="fuelMeterTargetLine"></div>
+                    <div class="fuel-meter-fill" id="fuelMeterFill"></div>
+                    <div class="fuel-meter-good-zone" id="fuelMeterGoodZone"></div>
+                    <div class="fuel-meter-perfect-zone" id="fuelMeterPerfectZone"></div>
+                </div>
+                <div class="fuel-meter-numbers">
+                    <span id="fuelMeterCurrent">0</span>
+                    <span>/</span>
+                    <span id="fuelMeterTarget">500</span>
+                </div>
+                <div class="fuel-meter-hint">HOLD to fill — RELEASE near target!</div>
+                <div class="fuel-meter-result" id="fuelMeterResult" style="display: none;"></div>
+            </div>
+        </div>
+
+        <!-- START SCREEN -->
+        <div id="startScreen" class="overlay-screen">
+            <h1>PETROL PUMP RUSH</h1>
+            <p>1. Click a waiting car to attend.</p>
+            <p>2. Select the matching pump (P/D/C).</p>
+            <p>3. Hold to fill, release at the right amount!</p>
+            <button id="startBtn" class="game-btn">START GAME</button>
+            <button id="shopBtnStart" class="game-btn" style="background: #6600CC; margin-top: 15px;">🛒 UPGRADE SHOP</button>
+        </div>
+
+        <!-- SHOP SCREEN -->
+        <div id="shopScreen" class="overlay-screen" style="display: none;">
+            <h1>🛒 UPGRADE SHOP</h1>
+            <p id="shopBalance" style="color: #FFD700;">Balance: 0 pts</p>
+            <div id="shopItems" class="shop-items-container"></div>
+            <div style="display: flex; gap: 15px; margin-top: 15px;">
+                <button id="shopCloseBtn" class="game-btn" style="background: #CC6600; margin-top: 0;">BACK</button>
+                <button id="resetProgressBtn" class="game-btn" style="background: #CC0000; margin-top: 0;">RESET DATA</button>
+            </div>
+        </div>
+
+        <!-- PAUSE SCREEN -->
+        <div id="pauseScreen" class="overlay-screen" style="display: none;">
+            <h1>PAUSED</h1>
+            <button id="resumeBtn" class="game-btn">RESUME</button>
+            <button id="shopBtnPause" class="game-btn" style="background: #6600CC; margin-top: 15px;">🛒 SHOP</button>
+        </div>
+
+        <!-- GAME OVER SCREEN -->
+        <div id="gameOver" class="overlay-screen" style="display: none;">
+            <h1>GAME OVER!</h1>
+            <p id="gameOverMessage">Wrong fuel explosion!</p>
+            
+            <div class="stats-panel" style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 8px; margin: 15px 0; width: 100%; text-align: left;">
+                <p id="finalScore" style="color: #FFD700; font-size: 16px;">Final Score: 0</p>
+                <p id="statsWave">Wave Reached: 1</p>
+                <p id="statsCars">Cars Serviced: 0</p>
+                <p id="statsCombo">Best Combo: x1</p>
+            </div>
+
+            <button id="restartBtn" class="game-btn">RESTART GAME</button>
+            <button id="shopBtnGameOver" class="game-btn" style="background: #6600CC; margin-top: 15px;">🛒 SHOP</button>
+        </div>
+    </div>
+
+    <script src="js/config.js"></script>
+    <script src="js/audio.js"></script>
+    <script src="js/shop.js"></script>
+    <script src="js/assetManager.js"></script>
+    <script src="js/gameObjects.js"></script>
+    <script src="js/game.js"></script>
+</body>
+</html>

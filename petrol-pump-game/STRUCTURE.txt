@@ -1,0 +1,177 @@
+╔══════════════════════════════════════════════════════════════════════════════╗
+║                     PETROL PUMP RUSH - PROJECT STRUCTURE                     ║
+╚══════════════════════════════════════════════════════════════════════════════╝
+
+petrol-pump-game/                          📦 Main Project Folder
+│
+├── 📄 index.html                          🎮 GAME ENTRY POINT (Open this!)
+├── 📄 server.js                           🖥️  Node.js local server
+├── 📄 package.json                        📋 NPM configuration
+│
+├── 📚 DOCUMENTATION
+│   ├── README.md                          📖 Full documentation
+│   ├── QUICKSTART.md                      🚀 Quick start guide
+│   └── STRUCTURE.txt                      📊 This file
+│
+├── 🎨 CSS
+│   └── css/
+│       └── style.css                      🎨 All styling and layout
+│
+├── ⚙️  JAVASCRIPT
+│   └── js/
+│       ├── assetManager.js                📦 PNG loading & sprite extraction
+│       ├── gameObjects.js                 🚗 Car, Pump, Worker classes
+│       └── game.js                        🎮 Main game logic & loop
+│
+└── 🖼️  ASSETS (PNG Sprite Sheets)
+    └── assets/
+        ├── background.png                 🏞️  Game background scene
+        ├── cars.png                       🚗 Car sprites (blue, yellow, truck)
+        ├── pumps.png                      ⛽ Pump sprites (P, D, C fuel types)
+        ├── worker.png                     👷 Worker animation frames
+        ├── UI_and_Icons.png               🎯 UI elements and fuel icons
+        ├── game_look.png                  📸 Reference screenshot
+        └── assets.png                     📋 Asset sheet catalog
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
+FILE DESCRIPTIONS:
+
+📄 index.html
+   └─ Main HTML file. Open this in browser to play the game.
+      Loads CSS and JavaScript files in correct order.
+
+⚙️ js/assetManager.js
+   └─ Handles PNG sprite loading and extraction
+   └─ Converts PNG files into game sprites
+   └─ Provides fallback rendering if assets fail to load
+   └─ Extract methods for: Car, Pump, Worker, UI elements
+
+⚙️ js/gameObjects.js
+   └─ Car class: Movement, fuel type, fill progress
+   └─ Pump class: Fuel type, selection, highlighting
+   └─ Worker class: Animation, movement tracking
+
+⚙️ js/game.js
+   └─ Main game loop (requestAnimationFrame)
+   └─ Input handling (click events)
+   └─ Score calculation and high score tracking
+   └─ Game over detection (4 wrong fuels)
+   └─ Drawing and rendering everything
+
+🎨 css/style.css
+   └─ HUD and UI styling
+   └─ Game over screen styling
+   └─ Loading screen animation
+   └─ Responsive design
+
+🖼️ assets/
+   └─ All PNG sprite sheets and images
+   └─ Organized by game element (cars, pumps, worker, UI)
+
+📖 README.md
+   └─ Complete documentation
+   └─ Game rules and mechanics
+   └─ Sprite coordinate reference
+   └─ Troubleshooting guide
+   └─ Enhancement ideas
+
+🚀 QUICKSTART.md
+   └─ Quick start instructions
+   └─ Multiple ways to run the game
+   └─ Customization tips
+   └─ Common issues
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
+HOW TO RUN:
+
+1️⃣  SIMPLEST (Direct Open)
+    → Double-click index.html
+    → Game opens in default browser
+
+2️⃣  PYTHON (Recommended for Development)
+    → Open terminal/command prompt in this folder
+    → Run: python -m http.server 8000
+    → Open: http://localhost:8000
+
+3️⃣  NODE.JS (Alternative)
+    → Install: npm install -g http-server
+    → Run: http-server
+    → Open: http://localhost:8080
+
+4️⃣  NODE.JS Server (Custom)
+    → Run: node server.js
+    → Open: http://localhost:8000
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
+KEY GAME SYSTEMS:
+
+🎮 Asset Loading
+   ├─ Sprites loaded asynchronously
+   ├─ Fallback rendering for missing assets
+   └─ Loading screen during startup
+
+🚗 Game Objects
+   ├─ Cars: Auto-spawn, move to pumps, fill fuel
+   ├─ Pumps: Static, clickable, show selection
+   └─ Worker: Animates based on game state
+
+⚡ Game Logic
+   ├─ Score: +50 correct, -30 wrong
+   ├─ Wrong Fuel Counter: 4 strikes = game over
+   ├─ High Score: Saved to browser localStorage
+   └─ Car Spawning: Periodic, random fuel types
+
+🎨 Rendering
+   ├─ Canvas 2D context for drawing
+   ├─ Sprite extraction from PNG sheets
+   ├─ Layered rendering (background → ground → objects)
+   └─ Animation frames for worker
+
+📱 Input
+   ├─ Mouse click detection
+   ├─ Car selection with visual feedback
+   ├─ Pump selection with highlight
+   └─ Touch-friendly (works on mobile)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
+CUSTOMIZATION QUICK REFERENCE:
+
+Change Pump Positions
+   └─ Edit: js/game.js → const pumps = [ ... ]
+
+Change Sprite Coordinates
+   └─ Edit: js/assetManager.js → extractCarSprite(), extractPumpSprite(), etc.
+
+Change Point Values
+   └─ Edit: js/gameObjects.js → fillCar() method
+
+Change Game Speed
+   └─ Edit: js/gameObjects.js → Car.speed = 1.5
+
+Change Car Spawn Rate
+   └─ Edit: js/game.js → frameCount % 140
+
+Change Wrong Fuel Limit
+   └─ Edit: js/game.js → if (wrongFuelCount >= 4)
+
+
+═══════════════════════════════════════════════════════════════════════════════
+
+Created: 2024
+Game Engine: HTML5 Canvas + Vanilla JavaScript
+Asset Format: PNG Sprite Sheets
+Target: Modern Web Browsers
+
+Total Size: ~2-3 MB (including all PNG assets)
+Performance: 60 FPS on modern systems
+Compatibility: Chrome, Firefox, Safari, Edge (mobile friendly)
+
+═══════════════════════════════════════════════════════════════════════════════

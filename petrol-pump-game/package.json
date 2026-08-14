@@ -1,0 +1,24 @@
+{
+  "name": "petrol-pump-rush",
+  "version": "1.0.0",
+  "description": "An interactive petrol pump management game with PNG sprite assets",
+  "main": "index.html",
+  "scripts": {
+    "start": "python -m http.server 8000",
+    "serve": "http-server",
+    "dev": "python -m http.server 3000"
+  },
+  "keywords": [
+    "game",
+    "canvas",
+    "petrol",
+    "pump",
+    "management",
+    "interactive"
+  ],
+  "author": "Your Name",
+  "license": "MIT",
+  "devDependencies": {
+    "http-server": "^14.1.1"
+  }
+}

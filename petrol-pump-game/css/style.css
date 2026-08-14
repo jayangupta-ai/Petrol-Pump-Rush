@@ -1,0 +1,476 @@
+* {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+}
+
+body {
+    font-family: 'Arial', sans-serif;
+    background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 100vh;
+    padding: 10px;
+}
+
+#gameContainer {
+    position: relative;
+    width: 100%;
+    max-width: 1200px;
+    aspect-ratio: 1200 / 700;
+    background: #87CEEB;
+    border: 4px solid #333;
+    box-shadow: 0 8px 16px rgba(0,0,0,0.3);
+    overflow: hidden;
+}
+
+canvas {
+    display: block;
+    background: #87CEEB;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+}
+
+#gameUI {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    pointer-events: none;
+    z-index: 10;
+}
+
+.hud {
+    position: absolute;
+    top: 15px;
+    left: 15px;
+    background: rgba(0, 0, 0, 0.8);
+    padding: 15px 20px;
+    border-radius: 8px;
+    color: white;
+    font-size: 16px;
+    font-weight: bold;
+    font-family: 'Press Start 2P', monospace;
+    border: 3px solid #FFD700;
+    min-width: 250px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.5);
+    font-size: clamp(10px, 1.5vw, 16px);
+}
+
+.hud-item {
+    display: flex;
+    justify-content: space-between;
+    margin: 8px 0;
+    letter-spacing: 1px;
+}
+
+.fuel-indicator {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 12px;
+    padding-top: 12px;
+    border-top: 2px solid #FFD700;
+}
+
+.fuel-dot {
+    width: 20px;
+    height: 20px;
+    border-radius: 3px;
+    border: 2px solid #FFD700;
+    background: #333;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.fuel-dot.active {
+    background: #FFD700;
+    color: #333;
+}
+
+.fuel-dot.x {
+    background: #FF4444;
+    border-color: #FF4444;
+    color: white;
+}
+
+/* ===== OVERLAY SCREENS ===== */
+.overlay-screen {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    background: rgba(0, 0, 0, 0.95);
+    padding: 40px 35px;
+    border-radius: 12px;
+    text-align: center;
+    z-index: 100;
+    pointer-events: auto;
+    min-width: 400px;
+    max-width: 650px;
+    max-height: 90%;
+    overflow-y: auto;
+    border: 4px solid #FFD700;
+    box-shadow: 0 0 30px rgba(255, 215, 0, 0.8);
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+}
+
+#gameOver.overlay-screen {
+    border-color: #FF4444;
+    box-shadow: 0 0 30px rgba(255, 68, 68, 0.8);
+}
+
+.overlay-screen h1 {
+    color: #FFD700;
+    font-size: 32px;
+    margin-bottom: 20px;
+    text-shadow: 2px 2px 4px rgba(0,0,0,0.8);
+    font-family: 'Press Start 2P', monospace;
+}
+
+#gameOver h1 {
+    color: #FF4444;
+}
+
+.overlay-screen p {
+    color: #FFF;
+    font-size: 12px;
+    margin: 8px 0;
+    line-height: 1.6;
+    font-family: 'Press Start 2P', monospace;
+}
+
+#gameOverMessage {
+    color: #FF8888 !important;
+    font-size: 14px !important;
+}
+
+.game-btn {
+    margin-top: 15px;
+    padding: 12px 40px;
+    font-size: 14px;
+    background: #00CC00;
+    color: white;
+    border: none;
+    border-radius: 6px;
+    cursor: pointer;
+    font-weight: bold;
+    pointer-events: auto;
+    transition: all 0.2s;
+    font-family: 'Press Start 2P', Arial, sans-serif;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+}
+
+.game-btn:hover {
+    filter: brightness(1.3);
+    transform: scale(1.05);
+    box-shadow: 0 6px 12px rgba(0,0,0,0.4);
+}
+
+.game-btn:active {
+    transform: scale(0.98);
+}
+
+/* ===== SHOP ===== */
+.shop-items-container {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    width: 100%;
+    margin: 15px 0;
+}
+
+.shop-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    background: rgba(255, 255, 255, 0.08);
+    border: 2px solid #555;
+    border-radius: 8px;
+    padding: 12px 15px;
+    transition: border-color 0.2s;
+}
+
+.shop-item:hover {
+    border-color: #FFD700;
+}
+
+.shop-item-info {
+    text-align: left;
+    flex: 1;
+}
+
+.shop-item-name {
+    color: #FFD700;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 10px;
+    margin-bottom: 4px;
+}
+
+.shop-item-desc {
+    color: #AAA;
+    font-size: 10px;
+    font-family: Arial, sans-serif;
+}
+
+.shop-item-level {
+    color: #00FF00;
+    font-size: 9px;
+    font-family: 'Press Start 2P', monospace;
+    margin-top: 3px;
+}
+
+.shop-buy-btn {
+    padding: 8px 16px;
+    font-size: 10px;
+    background: #FFD700;
+    color: #000;
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: 'Press Start 2P', monospace;
+    font-weight: bold;
+    transition: all 0.2s;
+    white-space: nowrap;
+    margin-left: 15px;
+}
+
+.shop-buy-btn:hover {
+    background: #FFF;
+    transform: scale(1.05);
+}
+
+.shop-buy-btn:disabled {
+    background: #555;
+    color: #888;
+    cursor: not-allowed;
+    transform: none;
+}
+
+.shop-buy-btn.maxed {
+    background: #00CC00;
+    color: white;
+    cursor: default;
+}
+
+/* ===== FUEL METER OVERLAY ===== */
+#fuelMeterOverlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 50;
+    pointer-events: auto;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.4);
+}
+
+.fuel-meter-panel {
+    background: rgba(0, 0, 0, 0.92);
+    border: 4px solid #FFD700;
+    border-radius: 12px;
+    padding: 25px 35px;
+    text-align: center;
+    min-width: 350px;
+    box-shadow: 0 0 40px rgba(255, 215, 0, 0.5);
+    user-select: none;
+}
+
+.fuel-meter-title {
+    color: #FFD700;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 14px;
+    margin-bottom: 20px;
+}
+
+.fuel-meter-bar-container {
+    position: relative;
+    width: 100%;
+    height: 40px;
+    background: #222;
+    border: 3px solid #666;
+    border-radius: 6px;
+    overflow: hidden;
+    margin: 15px 0;
+}
+
+.fuel-meter-fill {
+    position: absolute;
+    top: 0;
+    left: 0;
+    height: 100%;
+    width: 0%;
+    background: linear-gradient(90deg, #00CC00, #00FF00);
+    transition: none;
+    border-radius: 3px;
+}
+
+.fuel-meter-target-line {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    width: 3px;
+    background: #FF0000;
+    z-index: 2;
+    left: 80%;
+}
+
+.fuel-meter-perfect-zone {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    background: rgba(255, 215, 0, 0.4);
+    border-left: 2px solid #FFD700;
+    border-right: 2px solid #FFD700;
+    z-index: 2;
+}
+
+.fuel-meter-good-zone {
+    position: absolute;
+    top: 0;
+    height: 100%;
+    background: rgba(0, 255, 0, 0.2);
+    border-left: 2px dashed rgba(0, 255, 0, 0.5);
+    border-right: 2px dashed rgba(0, 255, 0, 0.5);
+    z-index: 1;
+}
+
+.fuel-meter-numbers {
+    color: #FFF;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 20px;
+    margin: 10px 0;
+    letter-spacing: 2px;
+}
+
+.fuel-meter-numbers span:nth-child(2) {
+    color: #888;
+    margin: 0 5px;
+}
+
+.fuel-meter-hint {
+    color: #AAA;
+    font-family: 'Press Start 2P', monospace;
+    font-size: 8px;
+    margin-top: 12px;
+    animation: pulse 1.5s ease-in-out infinite;
+}
+
+.fuel-meter-result {
+    font-family: 'Press Start 2P', monospace;
+    font-size: 18px;
+    margin-top: 15px;
+    padding: 8px 20px;
+    border-radius: 6px;
+    animation: popIn 0.3s ease-out;
+}
+
+@keyframes popIn {
+    0% { transform: scale(0.5); opacity: 0; }
+    100% { transform: scale(1); opacity: 1; }
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 0.5; }
+    50% { opacity: 1; }
+}
+
+.instructions {
+    position: absolute;
+    bottom: 15px;
+    left: 15px;
+    background: rgba(0, 0, 0, 0.7);
+    color: #FFD700;
+    padding: 10px 15px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: bold;
+    max-width: 400px;
+    border: 2px solid #FFD700;
+    line-height: 1.4;
+}
+
+/* Loading screen */
+#loadingScreen {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    background: rgba(0, 0, 0, 0.9);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 1000;
+    font-family: Arial, sans-serif;
+}
+
+.loading-content {
+    text-align: center;
+    color: #FFD700;
+}
+
+.loading-content h2 {
+    font-size: 28px;
+    margin-bottom: 20px;
+    text-shadow: 0 0 10px rgba(255, 215, 0, 0.5);
+}
+
+.spinner {
+    width: 50px;
+    height: 50px;
+    border: 4px solid #333;
+    border-top: 4px solid #FFD700;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+    margin: 20px auto;
+}
+
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+/* Settings Bar */
+.settings-bar {
+    position: absolute;
+    top: 15px;
+    right: 15px;
+    display: flex;
+    gap: 10px;
+}
+
+.icon-btn {
+    background: rgba(0, 0, 0, 0.7);
+    border: 2px solid #FFF;
+    border-radius: 50%;
+    width: 40px;
+    height: 40px;
+    font-size: 20px;
+    color: white;
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    transition: all 0.2s;
+    box-shadow: 0 4px 8px rgba(0,0,0,0.3);
+}
+
+.icon-btn:hover {
+    transform: scale(1.1);
+    background: rgba(0, 0, 0, 0.9);
+}

@@ -6,10 +6,21 @@ import {
   DEPART_TIME_MS,
   ENTER_TIME_MS,
   EXPLOSION_TIME_MS,
-  FUEL_TIME_MS,
+  FILL_TIME_MS,
   TICK_MS,
   WRONG_FUEL_LIMIT,
 } from "@/lib/game";
+
+const TUTORIAL_KEY = "petrol-pump-rush:tutorial-seen";
+const SETTINGS_KEY = "petrol-pump-rush:settings";
+
+class ResizeObserverMock {
+  observe() {}
+  unobserve() {}
+  disconnect() {}
+}
+
+globalThis.ResizeObserver = ResizeObserverMock as unknown as typeof ResizeObserver;
 
 async function advance(ms: number) {
   const steps = Math.max(1, Math.ceil(ms / TICK_MS));
@@ -28,9 +39,15 @@ function fuelOf(el: HTMLElement): string {
   return (el.getAttribute("title") ?? "").replace("Requests ", "");
 }
 
+function startGame() {
+  fireEvent.click(screen.getByRole("button", { name: "START GAME" }));
+}
+
 describe("Petrol Pump Rush - integration", () => {
   beforeEach(() => {
     vi.useFakeTimers();
+    window.localStorage.clear();
+    window.localStorage.setItem(TUTORIAL_KEY, "1");
   });
 
   afterEach(() => {
@@ -38,25 +55,38 @@ describe("Petrol Pump Rush - integration", () => {
     vi.useRealTimers();
   });
 
-  it("renders the station, HUD and three pumps", () => {
+  it("shows the START screen and starts a fresh game", () => {
     render(<Game />);
-    expect(screen.getByText("Petrol Pump Rush")).toBeTruthy();
+    expect(screen.getByText("FUEL UP!")).toBeTruthy();
+    expect(screen.getByRole("button", { name: "START GAME" })).toBeTruthy();
+    startGame();
+    expect(screen.getByText("PLAYING")).toBeTruthy();
     expect(screen.getByRole("button", { name: "Petrol pump" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Diesel pump" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "CNG pump" })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Fill Fuel" })).toBeTruthy();
+  });
+
+  it("shows the tutorial on first visit and completing it starts the game", () => {
+    window.localStorage.removeItem(TUTORIAL_KEY);
+    render(<Game />);
+    startGame();
+    expect(screen.getByText("Step 1 of 4")).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Next" }));
+    fireEvent.click(screen.getByRole("button", { name: "Start Game" }));
     expect(screen.getByText("PLAYING")).toBeTruthy();
+    expect(window.localStorage.getItem(TUTORIAL_KEY)).toBe("1");
   });
 
   it("correct fueling awards points and the car departs", async () => {
     render(<Game />);
+    startGame();
     await advance(ENTER_TIME_MS + 50);
 
-    const cars = getCars();
-    expect(cars.length).toBeGreaterThan(0);
-    const car = cars[0];
+    const car = getCars()[0];
     const fuel = fuelOf(car);
-
     fireEvent.click(car);
     await advance(50);
 
@@ -66,18 +96,22 @@ describe("Petrol Pump Rush - integration", () => {
 
     const fillBtn = screen.getByRole("button", { name: "Fill Fuel" }) as HTMLButtonElement;
     expect(fillBtn.disabled).toBe(false);
-    fireEvent.click(fillBtn);
-    await advance(100);
 
-    expect(screen.getByText(/Correct/)).toBeTruthy();
+    fireEvent.pointerDown(fillBtn);
+    await advance(FILL_TIME_MS * 0.7);
+    fireEvent.pointerUp(fillBtn);
+    await advance(50);
+
+    expect(screen.getByText(/Good fill/)).toBeTruthy();
     expect(screen.queryByText(/Wrong fuel/)).toBeFalsy();
 
-    await advance(FUEL_TIME_MS + DEPART_TIME_MS + 200);
+    await advance(DEPART_TIME_MS + 200);
     expect(car.isConnected).toBe(false);
   });
 
   it("attending a car reveals its requested fuel and fill is locked until a pump is picked", async () => {
     render(<Game />);
+    startGame();
     await advance(ENTER_TIME_MS + 50);
 
     const car = getCars()[0];
@@ -99,6 +133,7 @@ describe("Petrol Pump Rush - integration", () => {
 
   it("wrong fuel penalizes but continues, and the 4th wrong fuel explodes into game over; restart resets", async () => {
     render(<Game />);
+    startGame();
     await advance(ENTER_TIME_MS + 50);
 
     const car = getCars()[0];
@@ -116,7 +151,9 @@ describe("Petrol Pump Rush - integration", () => {
     for (let i = 0; i < WRONG_FUEL_LIMIT; i++) {
       fireEvent.click(wrongPump);
       await advance(50);
-      fireEvent.click(fillBtn);
+      fireEvent.pointerDown(fillBtn);
+      await advance(50);
+      fireEvent.pointerUp(fillBtn);
       await advance(50);
       expect(screen.getAllByText(/Wrong fuel/).length).toBeGreaterThan(0);
       expect(screen.getByText("PLAYING")).toBeTruthy();
@@ -124,7 +161,9 @@ describe("Petrol Pump Rush - integration", () => {
 
     fireEvent.click(wrongPump);
     await advance(50);
-    fireEvent.click(fillBtn);
+    fireEvent.pointerDown(fillBtn);
+    await advance(50);
+    fireEvent.pointerUp(fillBtn);
     await advance(50);
     expect(screen.getByText(/exploded/)).toBeTruthy();
 
@@ -137,5 +176,18 @@ describe("Petrol Pump Rush - integration", () => {
     await advance(50);
     expect(screen.queryByText("Game Over")).toBeFalsy();
     expect(screen.getByText("PLAYING")).toBeTruthy();
+  });
+
+  it("settings toggles persist to localStorage and close", () => {
+    render(<Game />);
+    fireEvent.click(screen.getByRole("button", { name: "Settings" }));
+    const soundRow = screen.getByRole("switch", { name: "Sound Effects" });
+    expect(soundRow.getAttribute("aria-checked")).toBe("true");
+    fireEvent.click(soundRow);
+    expect(soundRow.getAttribute("aria-checked")).toBe("false");
+    const saved = JSON.parse(window.localStorage.getItem(SETTINGS_KEY) ?? "{}");
+    expect(saved.sound).toBe(false);
+    fireEvent.click(screen.getByRole("button", { name: "Close settings" }));
+    expect(screen.queryByRole("heading", { name: "Settings" })).toBeFalsy();
   });
 });

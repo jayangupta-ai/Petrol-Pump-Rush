@@ -12,6 +12,9 @@ const eslintConfig = defineConfig([
     "out/**",
     "build/**",
     "next-env.d.ts",
+    // Legacy asset-prep scripts (run manually with node, not app code).
+    "extract.js",
+    "remove_bg.js",
   ]),
 ]);
 

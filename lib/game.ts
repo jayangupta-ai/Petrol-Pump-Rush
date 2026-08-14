@@ -33,9 +33,15 @@ export interface Car {
   fillProgress: number;
 }
 
-export type GameStatus = "PLAYING" | "GAME_OVER";
+export type GameStatus = "START" | "PLAYING" | "GAME_OVER";
 
-export type ToastKind = "success" | "error" | "warning" | "info";
+export type ToastKind =
+  | "success"
+  | "error"
+  | "warning"
+  | "info"
+  | "perfect"
+  | "spill";
 
 export interface Toast {
   id: number;
@@ -44,17 +50,34 @@ export interface Toast {
   createdAt: number;
 }
 
+export type FillResult = "PERFECT" | "GOOD" | "PARTIAL" | "SPILL";
+
+export interface Popup {
+  id: number;
+  x: number;
+  y: number;
+  text: string;
+  color: string;
+  createdAt: number;
+}
+
 export interface GameState {
   status: GameStatus;
   score: number;
   wrongFuelCount: number;
   highScore: number;
+  level: number;
+  levelElapsedMs: number;
+  carsServed: number;
   cars: Car[];
   attendedCarId: number | null;
   selectedPump: FuelType | null;
+  fillingCarId: number | null;
   toasts: Toast[];
+  popups: Popup[];
   seq: number;
   toastSeq: number;
+  popupSeq: number;
 }
 
 export const CAR_COLORS = [
@@ -70,16 +93,26 @@ export const CAR_COLORS = [
 
 export const WRONG_FUEL_LIMIT = 3;
 export const MAX_QUEUE = 4;
+export const MAX_QUEUE_CAP = 8;
 export const REWARD_CORRECT = 100;
+export const PERFECT_BONUS = 50;
 export const PENALTY_WRONG = 50;
 
 export const TICK_MS = 100;
-export const FUEL_TIME_MS = 1400;
+export const FILL_TIME_MS = 1400;
 export const DEPART_TIME_MS = 1300;
 export const ENTER_TIME_MS = 1300;
 export const EXPLOSION_TIME_MS = 1700;
 export const TOAST_MS = 2600;
-export const SPAWN_INTERVAL_MS = 1600;
+export const POPUP_MS = 1300;
+export const SPAWN_INTERVAL_BASE_MS = 1900;
+export const SPAWN_INTERVAL_MIN_MS = 800;
+export const LEVEL_MS = 25000;
+
+// Accuracy scoring (percent of a full tank at release time)
+export const FILL_PERFECT_MIN = 90;
+export const FILL_GOOD_MIN = 60;
+export const FILL_SPILL_CAP = 130;
 
 export const STAGE_W = 900;
 export const STAGE_H = 560;
@@ -92,16 +125,22 @@ export const PUMP_X: Record<FuelType, number> = {
 
 export function createInitialState(): GameState {
   return {
-    status: "PLAYING",
+    status: "START",
     score: 0,
     wrongFuelCount: 0,
     highScore: 0,
+    level: 1,
+    levelElapsedMs: 0,
+    carsServed: 0,
     cars: [],
     attendedCarId: null,
     selectedPump: null,
+    fillingCarId: null,
     toasts: [],
+    popups: [],
     seq: 1,
     toastSeq: 1,
+    popupSeq: 1,
   };
 }
 
@@ -111,9 +150,11 @@ export type Action =
   | { type: "CAR_ENTERED"; id: number }
   | { type: "ATTEND_CAR"; id: number; now?: number }
   | { type: "SELECT_PUMP"; pump: FuelType; now?: number }
-  | { type: "FILL_FUEL"; now?: number }
+  | { type: "START_FILL"; now?: number }
+  | { type: "RELEASE_FILL"; now?: number }
   | { type: "CLEAR_TOAST"; id: number }
-  | { type: "RESTART" };
+  | { type: "START_GAME" }
+  | { type: "LOAD_HIGH_SCORE"; value: number };
 
 const nowMs = (now?: number) => (now === undefined ? Date.now() : now);
 
@@ -136,14 +177,78 @@ function nextToastSeq(state: GameState): number {
   return state.toastSeq + 1;
 }
 
+function pushPopup(
+  state: GameState,
+  x: number,
+  y: number,
+  text: string,
+  color: string,
+  now: number
+): Popup[] {
+  const popup: Popup = {
+    id: state.popupSeq,
+    x,
+    y,
+    text,
+    color,
+    createdAt: now,
+  };
+  return [...state.popups, popup];
+}
+
+function nextPopupSeq(state: GameState): number {
+  return state.popupSeq + 1;
+}
+
 function isInQueue(car: Car): boolean {
   return car.phase === "ENTERING" || car.phase === "WAITING";
+}
+
+export function getSpawnIntervalMs(level: number): number {
+  return Math.max(
+    SPAWN_INTERVAL_MIN_MS,
+    SPAWN_INTERVAL_BASE_MS - (level - 1) * 150
+  );
+}
+
+export function getQueueCap(level: number): number {
+  return Math.min(MAX_QUEUE_CAP, MAX_QUEUE + Math.floor((level - 1) / 2));
+}
+
+/** Fill speed in percent-per-ms; higher levels fill faster (harder to stop). */
+export function getFillRate(level: number): number {
+  return (100 / FILL_TIME_MS) * (1 + (level - 1) * 0.1);
+}
+
+/** Modest score multiplier that grows with level. */
+export function getLevelMultiplier(level: number): number {
+  return 1 + (level - 1) * 0.1;
+}
+
+export function scoreFill(progress: number, level: number): { result: FillResult; points: number } {
+  const mult = getLevelMultiplier(level);
+  let result: FillResult;
+  let base: number;
+  if (progress > 100) {
+    result = "SPILL";
+    base = Math.floor(REWARD_CORRECT * Math.max(0, 1 - (progress - 100) / 30));
+  } else if (progress >= FILL_PERFECT_MIN) {
+    result = "PERFECT";
+    base = REWARD_CORRECT + PERFECT_BONUS;
+  } else if (progress >= FILL_GOOD_MIN) {
+    result = "GOOD";
+    base = REWARD_CORRECT;
+  } else {
+    result = "PARTIAL";
+    base = Math.floor((REWARD_CORRECT * progress) / FILL_GOOD_MIN);
+  }
+  return { result, points: Math.floor(base * mult) };
 }
 
 function reduceSpawn(state: GameState, fuel?: FuelType, now?: number): GameState {
   if (state.status !== "PLAYING") return state;
   const queued = state.cars.filter(isInQueue).length;
-  if (queued >= MAX_QUEUE) return state;
+  if (queued >= getQueueCap(state.level)) return state;
   const chosen = fuel ?? FUELS[Math.floor(Math.random() * FUELS.length)];
   const color = CAR_COLORS[Math.floor(Math.random() * CAR_COLORS.length)];
   const car: Car = {
@@ -160,47 +265,102 @@ function reduceSpawn(state: GameState, fuel?: FuelType, now?: number): GameState
 
 function reduceTick(state: GameState, now?: number): GameState {
   const t = nowMs(now);
+  if (state.status === "START") return state;
   if (state.status === "GAME_OVER") {
     return {
       ...state,
       toasts: state.toasts.filter((toast) => t - toast.createdAt < TOAST_MS),
+      popups: state.popups.filter((p) => t - p.createdAt < POPUP_MS),
     };
   }
 
+  // Survival level timer
+  let level = state.level;
+  let levelElapsedMs = state.levelElapsedMs + TICK_MS;
+  let toasts = state.toasts;
+  let toastSeq = state.toastSeq;
+  let popups = state.popups;
+  let popupSeq = state.popupSeq;
+  if (levelElapsedMs >= LEVEL_MS) {
+    level += 1;
+    levelElapsedMs = 0;
+    toasts = pushToast(state, `Level ${level} — faster!`, "info", t);
+    toastSeq = nextToastSeq(state);
+    popups = pushPopup(state, STAGE_W / 2, 180, `LEVEL ${level}`, "#ffd166", t);
+    popupSeq = nextPopupSeq(state);
+  }
+
   let exploded = false;
-  const cars = state.cars
-    .map((car): Car | null => {
-      switch (car.phase) {
-        case "ENTERING":
-          if (t - car.phaseStartedAt >= ENTER_TIME_MS) {
-            return { ...car, phase: "WAITING" };
-          }
-          return car;
-        case "FUELING": {
-          const elapsed = t - car.phaseStartedAt;
-          const progress = Math.min(100, (elapsed * 100) / FUEL_TIME_MS);
-          if (progress >= 100) {
-            return { ...car, fillProgress: 100, phase: "DEPARTING", phaseStartedAt: t };
-          }
-          return { ...car, fillProgress: progress };
+  const overflowCar =
+    state.fillingCarId != null
+      ? state.cars.find(
+          (c) =>
+            c.id === state.fillingCarId &&
+            c.phase === "FUELING" &&
+            Math.max(0, t - c.phaseStartedAt) * getFillRate(level) >= FILL_SPILL_CAP
+        ) ?? null
+      : null;
+  const cars = state.cars.map((car): Car | null => {
+    switch (car.phase) {
+      case "ENTERING":
+        if (t - car.phaseStartedAt >= ENTER_TIME_MS) {
+          return { ...car, phase: "WAITING" };
         }
-        case "DEPARTING":
-          if (t - car.phaseStartedAt >= DEPART_TIME_MS) return null;
-          return car;
-        case "EXPLODING":
-          if (t - car.phaseStartedAt >= EXPLOSION_TIME_MS) exploded = true;
-          return car;
-        default:
-          return car;
+        return car;
+      case "FUELING": {
+        if (car.id !== state.fillingCarId) return car;
+        const elapsed = Math.max(0, t - car.phaseStartedAt);
+        const progress = Math.min(FILL_SPILL_CAP, elapsed * getFillRate(level));
+        if (progress >= FILL_SPILL_CAP) {
+          return { ...car, fillProgress: progress, phase: "DEPARTING", phaseStartedAt: t };
+        }
+        return { ...car, fillProgress: progress };
       }
-    })
-    .filter((car): car is Car => car !== null);
+      case "DEPARTING":
+        if (t - car.phaseStartedAt >= DEPART_TIME_MS) return null;
+        return car;
+      case "EXPLODING":
+        if (t - car.phaseStartedAt >= EXPLOSION_TIME_MS) exploded = true;
+        return car;
+      default:
+        return car;
+    }
+  }).filter((car): car is Car => car !== null);
 
   let next: GameState = {
     ...state,
+    level,
+    levelElapsedMs,
     cars,
-    toasts: state.toasts.filter((toast) => t - toast.createdAt < TOAST_MS),
+    toasts: toasts.filter((toast) => t - toast.createdAt < TOAST_MS),
+    popups: popups.filter((p) => t - p.createdAt < POPUP_MS),
+    toastSeq,
+    popupSeq,
   };
+
+  if (overflowCar) {
+    const { points } = scoreFill(FILL_SPILL_CAP, next.level);
+    const lost = Math.max(0, Math.floor((REWARD_CORRECT * (FILL_SPILL_CAP - 100)) / 30 * getLevelMultiplier(next.level)));
+    next = {
+      ...next,
+      score: next.score + points,
+      carsServed: next.carsServed + 1,
+      fillingCarId: null,
+      attendedCarId: null,
+      selectedPump: null,
+      toasts: pushToast(next, "SPILLED! Tank overflowed", "spill", t),
+      toastSeq: next.toastSeq + 1,
+      popups: pushPopup(
+        next,
+        PUMP_X[overflowCar.pumpId ?? "PETROL"],
+        420,
+        `-${lost} SPILL`,
+        "#ff7675",
+        t
+      ),
+      popupSeq: next.popupSeq + 1,
+    };
+  }
 
   if (exploded && next.status === "PLAYING") {
     next = {
@@ -244,7 +404,7 @@ function reduceAttendCar(state: GameState, id: number, now?: number): GameState 
     if (c.id === id) {
       return { ...c, phase: "ATTENDED" as CarPhase, pumpId: null, phaseStartedAt: t };
     }
-    if (c.phase === "ATTENDED" || c.phase === "MOVING") {
+    if (c.phase === "ATTENDED" || c.phase === "MOVING" || c.phase === "FUELING") {
       return { ...c, phase: "WAITING" as CarPhase, pumpId: null, phaseStartedAt: t };
     }
     return c;
@@ -255,6 +415,7 @@ function reduceAttendCar(state: GameState, id: number, now?: number): GameState 
     cars,
     attendedCarId: id,
     selectedPump: null,
+    fillingCarId: null,
     toasts: pushToast(state, "Attended car - select a pump", "info", t),
     toastSeq: nextToastSeq(state),
   };
@@ -289,7 +450,7 @@ function reduceSelectPump(state: GameState, pump: FuelType, now?: number): GameS
   };
 }
 
-function reduceFillFuel(state: GameState, now?: number): GameState {
+function reduceStartFill(state: GameState, now?: number): GameState {
   if (state.status !== "PLAYING") return state;
   if (state.attendedCarId == null || state.selectedPump == null) return state;
   const car = state.cars.find((c) => c.id === state.attendedCarId);
@@ -299,7 +460,6 @@ function reduceFillFuel(state: GameState, now?: number): GameState {
   const pump = state.selectedPump;
 
   if (pump === car.fuel) {
-    const score = state.score + REWARD_CORRECT;
     const cars = state.cars.map((c) =>
       c.id === car.id
         ? {
@@ -313,15 +473,14 @@ function reduceFillFuel(state: GameState, now?: number): GameState {
     );
     return {
       ...state,
-      score,
       cars,
-      attendedCarId: null,
-      selectedPump: null,
-      toasts: pushToast(state, `+${REWARD_CORRECT} Correct ${FUEL_INFO[pump].label}!`, "success", t),
+      fillingCarId: car.id,
+      toasts: pushToast(state, "Hold to fill — release near 100%!", "info", t),
       toastSeq: nextToastSeq(state),
     };
   }
 
+  // Wrong fuel: strike. The 4th wrong fuel explodes the car.
   const wrongFuelCount = state.wrongFuelCount + 1;
   const score = Math.max(0, state.score - PENALTY_WRONG);
   const isExplosion = wrongFuelCount > WRONG_FUEL_LIMIT;
@@ -341,6 +500,15 @@ function reduceFillFuel(state: GameState, now?: number): GameState {
       selectedPump: null,
       toasts: pushToast(state, "WRONG FUEL! The car exploded!", "warning", t),
       toastSeq: nextToastSeq(state),
+      popups: pushPopup(
+        state,
+        PUMP_X[pump],
+        420,
+        "WRONG FUEL!",
+        "#ff6b6b",
+        t
+      ),
+      popupSeq: nextPopupSeq(state),
     };
   }
 
@@ -362,6 +530,70 @@ function reduceFillFuel(state: GameState, now?: number): GameState {
       t
     ),
     toastSeq: nextToastSeq(state),
+    popups: pushPopup(state, PUMP_X[pump], 420, "WRONG FUEL", "#ff6b6b", t),
+    popupSeq: nextPopupSeq(state),
+  };
+}
+
+function reduceReleaseFill(state: GameState, now?: number): GameState {
+  if (state.status !== "PLAYING") return state;
+  if (state.fillingCarId == null) return state;
+  const car = state.cars.find((c) => c.id === state.fillingCarId);
+  if (!car || car.phase !== "FUELING") return state;
+
+  const t = nowMs(now);
+  const { result, points } = scoreFill(car.fillProgress, state.level);
+
+  const cars = state.cars.map((c) =>
+    c.id === car.id
+      ? { ...c, phase: "DEPARTING" as CarPhase, phaseStartedAt: t }
+      : c
+  );
+
+  let toasts = state.toasts;
+  let toastSeq = state.toastSeq;
+  let popups = state.popups;
+  let popupSeq = state.popupSeq;
+
+  const popupY = 380;
+  if (result === "PERFECT") {
+    toasts = pushToast(state, `PERFECT +${points}`, "perfect", t);
+    toastSeq = nextToastSeq(state);
+    popups = pushPopup(state, PUMP_X[car.pumpId ?? "PETROL"], popupY, `PERFECT +${points}`, "#ffe066", t);
+    popupSeq = nextPopupSeq(state);
+  } else if (result === "GOOD") {
+    toasts = pushToast(state, `+${points} Good fill`, "success", t);
+    toastSeq = nextToastSeq(state);
+    popups = pushPopup(state, PUMP_X[car.pumpId ?? "PETROL"], popupY, `+${points}`, "#2ecc71", t);
+    popupSeq = nextPopupSeq(state);
+  } else if (result === "PARTIAL") {
+    toasts = pushToast(state, `+${points} Underfilled`, "info", t);
+    toastSeq = nextToastSeq(state);
+    popups = pushPopup(state, PUMP_X[car.pumpId ?? "PETROL"], popupY, `+${points}`, "#74b9ff", t);
+    popupSeq = nextPopupSeq(state);
+  } else {
+    const lost = Math.max(
+      0,
+      Math.floor(((car.fillProgress - 100) / 30) * REWARD_CORRECT * getLevelMultiplier(state.level))
+    );
+    toasts = pushToast(state, "SPILLED! Tank overflowed", "spill", t);
+    toastSeq = nextToastSeq(state);
+    popups = pushPopup(state, PUMP_X[car.pumpId ?? "PETROL"], popupY, `-${lost} SPILL`, "#ff7675", t);
+    popupSeq = nextPopupSeq(state);
+  }
+
+  return {
+    ...state,
+    score: state.score + points,
+    carsServed: state.carsServed + 1,
+    cars,
+    fillingCarId: null,
+    attendedCarId: null,
+    selectedPump: null,
+    toasts,
+    toastSeq,
+    popups,
+    popupSeq,
   };
 }
 
@@ -369,8 +601,13 @@ function reduceClearToast(state: GameState, id: number): GameState {
   return { ...state, toasts: state.toasts.filter((t) => t.id !== id) };
 }
 
-function reduceRestart(state: GameState): GameState {
-  return { ...createInitialState(), highScore: state.highScore };
+function reduceStartGame(state: GameState): GameState {
+  return { ...createInitialState(), status: "PLAYING", highScore: state.highScore };
+}
+
+function reduceLoadHighScore(state: GameState, value: number): GameState {
+  if (value <= 0 || value <= state.highScore) return state;
+  return { ...state, highScore: value };
 }
 
 export function reducer(state: GameState, action: Action): GameState {
@@ -385,12 +622,16 @@ export function reducer(state: GameState, action: Action): GameState {
       return reduceAttendCar(state, action.id, action.now);
     case "SELECT_PUMP":
       return reduceSelectPump(state, action.pump, action.now);
-    case "FILL_FUEL":
-      return reduceFillFuel(state, action.now);
+    case "START_FILL":
+      return reduceStartFill(state, action.now);
+    case "RELEASE_FILL":
+      return reduceReleaseFill(state, action.now);
     case "CLEAR_TOAST":
       return reduceClearToast(state, action.id);
-    case "RESTART":
-      return reduceRestart(state);
+    case "START_GAME":
+      return reduceStartGame(state);
+    case "LOAD_HIGH_SCORE":
+      return reduceLoadHighScore(state, action.value);
     default:
       return state;
   }
@@ -407,7 +648,7 @@ export function getCarPosition(car: Car, queueIndex: number): CarPosition {
   switch (car.phase) {
     case "ENTERING":
     case "WAITING":
-      return { x: 16 + queueIndex * 96, y: 76, scale: 1, z: 1 };
+      return { x: 16 + queueIndex * 96, y: 235, scale: 1, z: 1 };
     case "ATTENDED":
       return { x: 132, y: 252, scale: 1.22, z: 4 };
     case "MOVING":
@@ -432,4 +673,17 @@ export function isFillEnabled(state: GameState): boolean {
   const car = state.cars.find((c) => c.id === state.attendedCarId);
   if (!car) return false;
   return car.phase === "ATTENDED" || car.phase === "MOVING";
+}
+
+export function isFilling(state: GameState): boolean {
+  if (state.status !== "PLAYING") return false;
+  if (state.fillingCarId == null) return false;
+  const car = state.cars.find((c) => c.id === state.fillingCarId);
+  return !!car && car.phase === "FUELING";
+}
+
+export function fillProgressOf(state: GameState): number {
+  if (state.fillingCarId == null) return 0;
+  const car = state.cars.find((c) => c.id === state.fillingCarId);
+  return car ? Math.round(Math.min(100, car.fillProgress)) : 0;
 }
